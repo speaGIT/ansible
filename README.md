@@ -12,7 +12,7 @@ Requirements:
 -Network connectivity between the Ansible Server and the Windows Server
 
 -Clone this GIT repo to your Ansible Server
-    Run: git clone https://github.com/YOUR-USERNAME/YOUR-REPOSITORY
+    Run: git clone https://github.com/speaGIT/ansible
 
 Ansible Server Setup:
 -Ansible Server able to communicate over WinRM
