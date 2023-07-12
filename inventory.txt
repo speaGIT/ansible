@@ -1,0 +1,1 @@
+hyperv ansible_host=172.26.198.245 ansible_connection=winrm ansible_user=ansible ansible_password=N0t4prodU$e ansible_port=5985 ansible_winrm_transport=ntlm

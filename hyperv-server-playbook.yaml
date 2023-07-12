@@ -1,0 +1,115 @@
+---
+- name: "Hyper-V Server Setup"
+  hosts: hyperv
+  tasks:
+
+    - name: set time zone to UTC
+      ansible.windows.win_powershell:
+        script: |
+          $CurrentTimeZone = Get-TimeZone
+          if ($CurrentTimeZone.Id -ne 'UTC') {
+              Set-TimeZone -Name 'Coordinated Universal Time'
+              Write-Host 'Set TimeZone to UTC'
+          }
+          else {
+            $Ansible.Changed = $false
+            Write-Host 'TimeZone is already set correctly'
+          }
+      register: set_timezone_result
+
+    - name: install chocolatey
+      win_chocolatey:
+        name: chocolatey
+        state: present
+
+    - name: install 7zip
+      win_chocolatey:
+        name: 7zip
+        state: present
+
+    - name: install Notepad++
+      win_chocolatey:
+        name: notepadplusplus
+        state: present
+
+    - name: install powershell-core (7)
+      win_chocolatey:
+        name: powershell-core
+        state: present
+
+    - name: install Hyper-V
+      ansible.windows.win_feature:
+        name: hyper-v
+        include_management_tools: true
+        state: present
+      register: hyperv_feature_install_result
+
+    - name: Reboot when Hyper-V installation requires it
+      ansible.windows.win_reboot:
+      when: hyperv_feature_install_result.reboot_required
+
+    - name: Create Hyper-V and Virtual Hard Disks folder
+      ansible.windows.win_file:
+        path: C:\Hyper-V\Virtual Hard Disks
+        state: directory
+
+    - name: set default path for Hyper-V disks
+      ansible.windows.win_powershell:
+          script: |
+            $CurrentDiskFolder = (Get-VMHost).VirtualHardDiskPath
+            if ($CurrentDiskFolder -ne 'C:\Hyper-V\Virtual Hard Disks') {
+                Set-VMHost -VirtualHardDiskPath 'C:\Hyper-V\Virtual Hard Disks'
+                Write-Host 'Set Virtual disk path'
+            }
+            else {
+              $Ansible.Changed = $false
+              Write-Host 'Virtual Disk path is already set correctly'
+            }
+      register: set_default_virtual_disk_folder_result
+
+    - name: set default path for Hyper-V machines
+      ansible.windows.win_powershell:
+          script: |
+            $CurrentMachineFolder = (Get-VMHost).VirtualMachinePath
+            if ($CurrentMachineFolder -ne 'C:\Hyper-V') {
+                Set-VMHost -VirtualMachinePath 'C:\Hyper-V'
+                Write-Host 'Set Virtual Machine path'
+            }
+            else {
+              $Ansible.Changed = $false
+              Write-Host 'Virtual Machine path is already set correctly'
+            }
+      register: set_default_virtual_machine_path_result
+
+    - name: create a Scheduled Task to create an external Hyper-V switch to work around the WinRM connection drop that occurs
+      ansible.windows.win_powershell:
+          script: |
+            $CurrentvSwitches = Get-NetAdapter | Where-Object {$_.Name -like "*vSwitchExternal*"}
+            if (!$CurrentvSwitches) {
+            $2minutesFromNow = (Get-Date) + (New-TimeSpan -Minutes 2)
+            $Argument = @"
+            -command "New-VMSwitch -Name vSwitchExternal -NetAdapterName (Get-NetAdapter | Where-Object {`$_.Status -eq 'Up'}).Name"
+            "@
+            $Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $Argument
+            $Trigger = New-ScheduledTaskTrigger -Once -At $2minutesFromNow
+            $Principal = New-ScheduledTaskPrincipal -GroupId "NT AUTHORITY\SYSTEM" -RunLevel "Highest"
+            $Task = New-ScheduledTask -Action $Action -Principal $Principal -Trigger $Trigger
+            Register-ScheduledTask -TaskName "Create External Hyper-V Switch" -InputObject $Task
+            Write-Host 'Created Scheduled Task to create new External Hyper-V Switch (network drop in 2 minutes)'
+            }
+            if ($CurrentvSwitches) {
+            $Ansible.Changed = $false
+            Write-Host 'External Hyper-V Switch already present'
+            }
+      register: create_hyperv_switch_result
+      
+    - name: Display debug var messages 
+      vars: 
+        msg: |
+            Set Virtual Disk Path Result?: {{ set_default_virtual_disk_folder_result.host_out }}
+            Set Virtual Machine Path Result?: {{ set_default_virtual_machine_path_result.host_out }}
+            Create Virtual Switch Result?: {{ create_hyperv_switch_result.host_out }}
+            Set TimeZone Result?: {{ set_timezone_result.host_out }}
+      debug: 
+        msg: "{{ msg.split('\r') }}"       
+      
